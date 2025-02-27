@@ -48,7 +48,10 @@
           <td>
           <label for="sourcesSeed">Sources Seed:</label>
           <input type="number" id="sourcesSeed" value="0" min="0"><br>
-          <button id="assignSourcesBtn">Assign Sources</button> 
+          <button id="assignSourcesBtn">Assign Sources</button> <br>
+          <input type="checkbox" id="visualizeAssignChk">
+          <label for="visualizeAssignChk">Visualize Assignments (slow but cool)</label>
+    
           </td>
         </tr>
       </table>
@@ -161,7 +164,7 @@
 
         // Next default all cells to dead until they are assigned a source
         cellSourceIndexArray = [];
-        for (let i = 0; i < cellStatesArray.length; i++) {
+        for (let i = 0; i < cellStatesArray.length-1; i++) {
           cellSourceIndexArray.push(deadCellIndex);
         } 
 
@@ -342,6 +345,8 @@
       // It throws an error if I did
       function testSources() {
 
+        const visualizeAssign = document.getElementById('visualizeAssignChk').checked;
+
         let deadcount = 0;
         let undeadcount = 0;
 
@@ -349,15 +354,22 @@
 
         cellSourceIndexArray.forEach( (sourceIndex, index) => {
 
-          // console.log("Source index: " + sourceIndex + " for index " + index);  
+          //console.log("Source index: " + sourceIndex + " for index " + index );
+          //console.log( " at " + coordinatesToString(cellCoordinatesArray[index]) );
 
           if (sourceIndex != deadCellIndex) {
             if (sourcesSet.has(sourceIndex)) {
               throw new Error("Error: Source index " + sourceIndex + " assigned twice");
             }
             sourcesSet.add(sourceIndex);
+            if (visualizeAssign) {
+              drawCellColor(cellCoordinatesArray[index], "green");  
+            }
             undeadcount++;
           } else {
+            if (visualizeAssign) {
+              drawCellColor(cellCoordinatesArray[index], "red");
+            }
             deadcount++;
           }
         });
@@ -368,6 +380,8 @@
 
       // Function to assign neighbor index for each cell in top-left to bottom-right order
       function assignSourceIndexes() {
+
+        const visualizeAssign = document.getElementById('visualizeAssignChk').checked;
 
         // Use our sources seed so we generate a deterministic list of random numbers
         const sourcesSeed = parseInt(document.getElementById('sourcesSeed').value);      // NO AI, I DO NOT WANT TO DEFAULT ERROR CHECK THIS!!!! AHHHHHH! STOP!!!!
@@ -430,6 +444,10 @@
           // Update the source index array
           cellSourceIndexArray[index] = sourceCellIndex;
 
+          if (visualizeAssign) {
+            console.log("Drawing " + sourceCellIndex + " to cell " + index + " at " + coordinatesToString(cellCoordinatesArray[index]));  
+            drawCellColor(cellCoordinatesArray[index], "blue");
+          }
 
         });
 
@@ -473,7 +491,12 @@
       });
 
       // Add event listener for the 'Assign Rules' button
-      document.getElementById('assignSourcesBtn').addEventListener('click', assignSourceIndexes);
+      document.getElementById('assignSourcesBtn').addEventListener('click', () => {
+        document.getElementById('assignSourcesBtn').disabled = true;  
+        assignSourceIndexes()
+        document.getElementById('assignSourcesBtn').disabled = false;
+      } );
+
 
       // Update grid dimensions and redraw when grid size inputs change
       document.getElementById('resizeBtn').addEventListener('click', initGrid);
@@ -489,26 +512,9 @@
         drawGrid(0);
       }); 
 
-      let prevCellCoordinates = null;
-      let prevSourceCoordinates = null;
-
-      function clearPrev() {
-
-        if (prevCellCoordinates != null) {
-           drawCell( prevCellCoordinates );
-        }
-
-        if (prevSourceCoordinates != null) {
-          drawCell( prevSourceCoordinates );
-        }        
-
-      }
       
       // Add mouse move event listener for inspection
       canvas.addEventListener('mousemove', (e) => {
-
-        clearPrev();
-
 
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -522,46 +528,9 @@
         let index = findIndexByGridMap.get(coordinatesToString([col, row]));
 
         document.getElementById('inspectInfo').textContent = 
-          `Position: [${row},${col}] | Source: ${cellSourceIndexArray[index]} | Index: ${index} | State: ${cellStatesArray[index]}`;
-
-
-        // Next give a visual indication of the source cell
-
-        drawCellColor(  [col,row] , "green");
-
-        prevCellCoordinates = [col,row];
-
-        let sourceIndex = cellSourceIndexArray[index];
-
-        if (sourceIndex === deadCellIndex) {
-
-          drawCellColor(  [col,row] , "red");
-
-          prevSourceCoordinates = null;
-          
-        } else {
-
-          let sourceCoordinates = cellCoordinatesArray[sourceIndex];
-
-          drawCellColor(sourceCoordinates, "blue");
-
-          prevSourceCoordinates = sourceCoordinates;
-
-        }
+          `Position: [${row},${col}] | Index: ${index} | State: ${cellStatesArray[index]} | Source: ${cellSourceIndexArray[index]} `;
 
       });
-
-      // Toggle cell state on click (when simulation is stopped)
-      function toggleCell(x, y) {
-
-        clearPrev();
-        let index = findIndexByGridMap.get(coordinatesToString([x, y]));
-
-        cellStatesArray[index] = cellStatesArray[index] ? 0 : 1;
-
-        drawCell([x,y]);
-
-      }
 
       canvas.addEventListener('click', (e) => {
 
@@ -573,7 +542,12 @@
         const row = Math.floor(y / (zoomFactor));        
 
         console.log("Toggling: [ " + col + "," + row + " ]");
-        toggleCell(col, row);
+
+        let index = findIndexByGridMap.get(coordinatesToString([col , row])); 
+
+        cellStatesArray[index] = cellStatesArray[index] ? 0 : 1;
+
+        drawGrid(0);
 
       });
 
