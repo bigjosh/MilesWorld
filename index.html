@@ -49,8 +49,6 @@
           <label for="sourcesSeed">Sources Seed:</label>
           <input type="number" id="sourcesSeed" value="0" min="0"><br>
           <button id="assignSourcesBtn">Assign Sources</button> <br>
-          <input type="checkbox" id="visualizeAssignChk">
-          <label for="visualizeAssignChk">Visualize Assignments (slow but cool)</label>
     
           </td>
         </tr>
@@ -110,6 +108,9 @@
       // As an ugly optimization, we will store an extra 0 past the end of the list and use this as the source for dead cells
       let cellStatesArray = [];
 
+      // Keep track of how many valid elements there are in all of these arrays
+      let cellCount = 0;
+
       // Here is the ugly optimization. This will be set to the correct value by initGrid
       let deadCellIndex = 0; 
 
@@ -119,8 +120,10 @@
       // For each cell, this the [x,y] value where that cell apears in the grid. Each element is stored as a [x,y] tuple.
       let cellCoordinatesArray = [];
 
-      // Now make an grid to look up an index by the x,y position of a cell. The key is a string in the format "x,y". So ugly. 
-      let findIndexByGridMap;
+      function coordinatesToIndex(coordinates) {
+        [x,y] = coordinates;
+        return y * cols + x;
+      }
 
       // We use this becuase javascript can not store a tupple as a key in a set or map :/
       function coordinatesToString(coordinates) {
@@ -157,30 +160,24 @@
           }
         }
 
-        // Remeber the index of the dead cell
-        deadCellIndex = cellStatesArray.length;
+        cellCount = cellStatesArray.length;
 
+        // Remeber the index of the dead cell
+        deadCellIndex = cellCount;
         cellStatesArray.push(0);          // Add the dead cell (will always be 0)
 
         // Next default all cells to dead until they are assigned a source
         cellSourceIndexArray = [];
-        for (let i = 0; i < cellStatesArray.length-1; i++) {
+        for (let i = 0; i < cellCount; i++) {
           cellSourceIndexArray.push(deadCellIndex);
-        } 
+        }
 
         // Next lets set the grid coordinates of each cell, and add an entry to be able to get the index from the x,y
         cellCoordinatesArray = [];
-        findIndexByGridMap = new Map();
 
         for(let y = 0; y < rows; y++) {
           for(let x = 0; x < cols; x++) {
-            // Use a string key instead of an array. OMG this is so ugly. 
-            findIndexByGridMap.set(coordinatesToString([x,y]), cellCoordinatesArray.length);     // Here we use the length as the index since we are building the array in place
-
-            // console.log(" set :[" + i + "," + j + "]" + " to index " + cellCoordinatesArray.length);
-
             cellCoordinatesArray.push([x,y]); 
-
           }
         }
 
@@ -193,7 +190,7 @@
         // And finally draw what we've got
         drawGrid(0); 
 
-        console.log("Grid initialized with cell count " + cellCoordinatesArray.length);
+        console.log("Grid initialized with cell count " + cellCount);
         console.log("Zoom factor: " + zoomFactor);
 
       }
@@ -223,7 +220,7 @@
 
       function drawCell( coordinates ) {
 
-        let celIndex  = findIndexByGridMap.get(coordinatesToString(coordinates));
+        let celIndex  = coordinatesToIndex(coordinates);
         let cellState = cellStatesArray[celIndex];
         drawCellWithState(coordinates, cellState);
 
@@ -236,7 +233,7 @@
 
         const startTime = performance.now();
 
-        for( let i = 0 ; i < cellStatesArray.length - 1; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
+        for( let i = 0 ; i < cellCount; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
 
           //imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF000000 : 0xFFFFFFFF;
           imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF0FF000 : 0xFFFFFFFF;
@@ -277,10 +274,19 @@
         let newCellStatesArray = [];
 
         // For each cell, get the state of the cell that it will take its state from
-        for( let i=0; i < cellStatesArray.length; i++) {
+        for( let i=0; i < cellCount; i++) {
           let source = cellSourceIndexArray[i];
-          newCellStatesArray.push( cellStatesArray[source]);
+          let state = cellStatesArray[source];
+          if (state === undefined  ) {
+            console.log( "Undefined state at index " + i + " source index " + source);
+            state = 0;
+          }
+          
+          newCellStatesArray.push( state);
         }
+
+        // Finally add the ugly dead cell at the end. 
+        newCellStatesArray.push( 0 );        
 
         // Update the global cell state array
         cellStatesArray = newCellStatesArray; 
@@ -341,16 +347,40 @@
         return neighboors;
       }
 
+
+      class BitSet {
+        constructor(size) {
+          this.size = size;
+          this.words = new Uint32Array(Math.ceil(size / 32));
+        }
+
+        set(index) {
+          const wordIndex = Math.floor(index / 32);
+          const bitIndex = index % 32;
+          this.words[wordIndex] |= (1 << bitIndex);
+        }
+
+        get(index) {
+          const wordIndex = Math.floor(index / 32);
+          const bitIndex = index % 32;
+          return (this.words[wordIndex] >> bitIndex) & 1;
+        }
+
+        clear(index) {
+            const wordIndex = Math.floor(index / 32);
+            const bitIndex = index % 32;
+            this.words[wordIndex] &= ~(1 << bitIndex);
+        }
+      }
+
       // This is a doublecheck just to make sure I didn't do anything dumb in assigning the sources
       // It throws an error if I did
       function testSources() {
 
-        const visualizeAssign = document.getElementById('visualizeAssignChk').checked;
-
         let deadcount = 0;
         let undeadcount = 0;
 
-        let sourcesSet = new Set();
+        let sourcesSet = new BitSet(cellCount);
 
         cellSourceIndexArray.forEach( (sourceIndex, index) => {
 
@@ -358,18 +388,12 @@
           //console.log( " at " + coordinatesToString(cellCoordinatesArray[index]) );
 
           if (sourceIndex != deadCellIndex) {
-            if (sourcesSet.has(sourceIndex)) {
+            if (sourcesSet.get(sourceIndex)) {
               throw new Error("Error: Source index " + sourceIndex + " assigned twice");
             }
-            sourcesSet.add(sourceIndex);
-            if (visualizeAssign) {
-              drawCellColor(cellCoordinatesArray[index], "green");  
-            }
+            sourcesSet.set(sourceIndex);
             undeadcount++;
           } else {
-            if (visualizeAssign) {
-              drawCellColor(cellCoordinatesArray[index], "red");
-            }
             deadcount++;
           }
         });
@@ -381,12 +405,10 @@
       // Function to assign neighbor index for each cell in top-left to bottom-right order
       function assignSourceIndexes() {
 
-        const visualizeAssign = document.getElementById('visualizeAssignChk').checked;
-
         // Use our sources seed so we generate a deterministic list of random numbers
         const sourcesSeed = parseInt(document.getElementById('sourcesSeed').value);      // NO AI, I DO NOT WANT TO DEFAULT ERROR CHECK THIS!!!! AHHHHHH! STOP!!!!
         // 1. Make set to keep track of if each cell already been "taken". Each element is the coordinates as string "x,y" of the cell that has been used a a soruce.
-        const takenCoordinatesSet = new Set();
+        const takenCoordinatesSet = new BitSet(cellCount);
 
         // 2. Make a list of all indexes
         // (ChatGPT made this monster)
@@ -415,7 +437,7 @@
           let untakenNeighborCoordinateList = [];
 
           neighbors.forEach( neighbor => {
-            if (!takenCoordinatesSet.has(coordinatesToString(neighbor))) {  
+            if (!takenCoordinatesSet.get(coordinatesToIndex(neighbor))) {   
               untakenNeighborCoordinateList.push(neighbor);
             }
           });
@@ -431,23 +453,18 @@
             const randomIndex = Math.floor(randomGenerator() * untakenNeighborCoordinateList.length);
             const sourceCellCoordinates = untakenNeighborCoordinateList[randomIndex];
             //console.log("Picked source cell: " + sourceCellCoordinates);  
-            sourceCellIndex = findIndexByGridMap.get(coordinatesToString(sourceCellCoordinates));
+            sourceCellIndex =  coordinatesToIndex(sourceCellCoordinates);
             //console.log("Source cell index: " + sourceCellIndex);
 
             if (sourceCellIndex == undefined) {
               throw new Error("Error: source cell index not found");
             }
 
-            takenCoordinatesSet.add(coordinatesToString(sourceCellCoordinates));
+            takenCoordinatesSet.set(sourceCellIndex);
           }
 
           // Update the source index array
           cellSourceIndexArray[index] = sourceCellIndex;
-
-          if (visualizeAssign) {
-            console.log("Drawing " + sourceCellIndex + " to cell " + index + " at " + coordinatesToString(cellCoordinatesArray[index]));  
-            drawCellColor(cellCoordinatesArray[index], "blue");
-          }
 
         });
 
@@ -493,7 +510,11 @@
       // Add event listener for the 'Assign Rules' button
       document.getElementById('assignSourcesBtn').addEventListener('click', () => {
         document.getElementById('assignSourcesBtn').disabled = true;  
+        document.getElementById('assignSourcesBtn').textContent = "Assigning...";
+        console.log("Assigning sources...");
         assignSourceIndexes()
+        console.log("Assigned sources");
+        document.getElementById('assignSourcesBtn').textContent = "Assign Rules";
         document.getElementById('assignSourcesBtn').disabled = false;
       } );
 
@@ -525,7 +546,7 @@
 
         console.log("Inspecting: [ " + x + "," + y + ":" +  row + "," + col + "]");
 
-        let index = findIndexByGridMap.get(coordinatesToString([col, row]));
+        let index = coordinatesToIndex([col, row]);
 
         document.getElementById('inspectInfo').textContent = 
           `Position: [${row},${col}] | Index: ${index} | State: ${cellStatesArray[index]} | Source: ${cellSourceIndexArray[index]} `;
@@ -543,7 +564,7 @@
 
         console.log("Toggling: [ " + col + "," + row + " ]");
 
-        let index = findIndexByGridMap.get(coordinatesToString([col , row])); 
+        let index = coordinatesToIndex([col , row]); 
 
         cellStatesArray[index] = cellStatesArray[index] ? 0 : 1;
 
