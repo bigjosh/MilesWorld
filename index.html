@@ -57,7 +57,7 @@
       <input type="checkbox" id="toggleBtn">
       <label for="toggleBtn">Running</label>
       <label for="FrameRate">FrameRate:</label> 
-      <input type="number" id="frameRate" value="1" min="1"><br>
+      <input type="number" id="FrameRate" value="1" min="1"><br>
 
 
       <button id="stepBtn">Step</button>
@@ -70,7 +70,7 @@
       <hr>
   
       <div id="inspectInfo"></div>
-      <div><tt>Hover over cell to inspect info and see its source in blue. Click to change state.</tt></div>  
+      <div><tt>Hover over cell to inspect info. Click to change state.</tt></div>  
 
     </div>
 
@@ -79,7 +79,7 @@
     <canvas id="gameCanvas" width="500" height="500"></canvas>
 
     <script>
-      const frameRateInput = document.getElementById('frameRate');
+      const frameRateInput = document.getElementById('FrameRate');
       const stepBtn = document.getElementById('stepBtn');
       const canvas = document.getElementById('gameCanvas');
       const ctx = canvas.getContext('2d');
