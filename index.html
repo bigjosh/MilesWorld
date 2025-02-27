@@ -16,118 +16,248 @@
         padding: 5px;
         border-radius: 4px;
       }
+      table {
+        margin: 0 auto;
+        border-collapse: separate;
+        border-spacing: 10px;
+      }
+      td {
+        padding: 10px;
+      }
     </style>
   </head>
   <body>
     <h1>Miles' World</h1>
     <div>
-      <button id="toggleBtn">Start</button>
-      <button id="randomizeBtn">Randomize</button>
-      <button id="assignIndexesBtn">Assign Indexes</button>
-      <button id="inspectBtn">Inspect Mode</button>
+      <div style="margin-top: 10px;">
+        <label for="gridWidth">Grid Width:</label>
+        <input type="number" id="gridWidth" value="50" min="1">
+        <label for="gridHeight">Grid Height:</label>
+        <input type="number" id="gridHeight" value="50" min="1">
+        <br>
+        <label for="zoomFactor">Zoom Factor:</label>
+        <input type="number" id="zoomFactor" value="10" min="1">
+        <hr>
+      </div>
+      <hr>
+
+      <table>
+        <tr>
+          <td>
+          <label for="statesSeed" style="margin-left: 10px;">States Seed:</label> 
+          <input type="number" id="statesSeed" value="0" min="0"><br>
+          <button id="randomizeStatesBtn">Randomize States</button>
+          </td>
+          <td>
+          <label for="sourcesSeed">Sources Seed:</label>
+          <input type="number" id="sourcesSeed" value="0" min="0"><br>
+          <button id="assignSourcesBtn">Assign Sources</button> 
+          </td>
+        </tr>
+      </table>
+      <hr>
+      <input type="checkbox" id="toggleBtn">
+      <label for="toggleBtn">Running</label>
+      <label for="FrameRate" style="margin-left: 10px;">FrameRate:</label> 
+      <input type="number" id="frameRate" value="1" min="1"><br>
+
+
+      <button id="stepBtn">Step</button>
+
       <div id="counter">Iteration: 0</div>
       <div id="inspectInfo"></div>
-      <div style="margin-top: 10px;">
-        <label for="lambdaSeed">Lambda Seed:</label>
-        <input type="number" id="lambdaSeed" value="0" min="0">
-        <label for="cellStateSeed" style="margin-left: 10px;">Cell State Seed:</label>
-        <input type="number" id="cellStateSeed" value="0" min="0">
-      </div>
+      <div><tt>Hover over cell to inspect info and see its target in blue. Click to change state.</tt></div>  
+
     </div>
     <canvas id="gameCanvas" width="500" height="500"></canvas>
 
     <script>
+      const frameRateInput = document.getElementById('frameRate');
+      const stepBtn = document.getElementById('stepBtn');
       const canvas = document.getElementById('gameCanvas');
       const ctx = canvas.getContext('2d');
 
-      // Grid dimensions
-      const rows = 50;
-      const cols = 50;
-      const cellWidth = canvas.width / cols;
-      const cellHeight = canvas.height / rows;
+      // Toggle simulation mode and update iteration counter
+      const toggleBtn = document.getElementById('toggleBtn');
+      let iterationCount = 0;
+      const counterDiv = document.getElementById('counter');      
 
-      // Create grid: 0 for dead, 1 for live
-      let grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+      let frameRate = 1;
 
+      // Keep these handy for drawGrid and updateSourceIndexArray
+      let zoomFactor; 
+      let rows; 
+      let cols; 
+
+
+      // Global flag if we are running now.
       let simulationRunning = false;
-      let inspectMode = false;
 
-      const DEAD_RULE = -1;
+      // These are linear lists, with one element per cell 
+      // All lists are upperleft to lower right order
+      
+      // The state of each cell as integer 0 or 1 since this is faster than a boolean
+      // As an ugly optimization, we will store an extra 0 past the end of the list and use this as the source for dead cells
+      let cellStatesArray = [];
 
-      // Global variable to hold indexes (0-8) for each cell
-      // 0-7: neighbors, 8: the cell itself
-      let cellRules = [];
+      // Here is the ugly optimization. This will be set to the correct value by initGrid
+      let deadCellIndex = 0; 
 
-      // Draw grid
-      function drawGrid() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (let i = 0; i < rows; i++) {
-          for (let j = 0; j < cols; j++) {
-            ctx.fillStyle = grid[i][j] ? 'black' : 'white';
-            ctx.fillRect(j * cellWidth, i * cellHeight, cellWidth, cellHeight);
-            ctx.strokeStyle = '#ccc';
-            ctx.strokeRect(j * cellWidth, i * cellHeight, cellWidth, cellHeight);
+      // For each cell, this is the cell in cellStatesArray that it will pull its value from on the next update. 
+      let cellSourceIndexArray = []; 
+
+      // For each cell, this the [x,y] value where that cell apears in the grid. Each element is stored as a [x,y] tuple.
+      let cellCoordinatesArray = [];
+
+      // Now make an grid to look up an index by the x,y position of a cell. The key is a string in the format "x,y". So ugly. 
+      let findIndexByGridMap;
+
+      // We use this becuase javascript can not store a tupple as a key in a set or map :/
+      function coordinatesToString(coordinates) {
+        return `${coordinates[0]},${coordinates[1]}`;
+      }
+
+      function initZoomFactor() {
+
+        zoomFactor = parseInt(document.getElementById('zoomFactor').value);
+
+        // Now lets set the canvas to the correct size based on the grid dimensions
+        canvas.width = cols * zoomFactor;
+        canvas.height = rows * zoomFactor;
+
+      }
+
+      // Initialize a new grid based on the form input values
+      function initGrid() {
+
+        rows = parseInt(document.getElementById('gridHeight').value);
+        cols = parseInt(document.getElementById('gridWidth').value);
+
+        console.log("Initializing grid with " + rows + " rows and " + cols + " cols");
+
+        initZoomFactor();
+
+        cellStatesArray = [];
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols ; x++) {
+            cellStatesArray.push(0);        /// Start with all cells off
           }
         }
+
+        // Remeber the index of the dead cell
+        deadCellIndex = cellStatesArray.length;
+
+        cellStatesArray.push(0);          // Add the dead cell (will always be 0)
+
+        // Next default all cells to dead until they are assigned a source
+        cellSourceIndexArray = [];
+        for (let i = 0; i < cellStatesArray.length; i++) {
+          cellSourceIndexArray.push(deadCellIndex);
+        } 
+
+        // Next lets set the grid coordinates of each cell, and add an entry to be able to get the index from the x,y
+        cellCoordinatesArray = [];
+        findIndexByGridMap = new Map();
+
+        for(let y = 0; y < rows; y++) {
+          for(let x = 0; x < cols; x++) {
+            // Use a string key instead of an array. OMG this is so ugly. 
+            findIndexByGridMap.set(coordinatesToString([x,y]), cellCoordinatesArray.length);     // Here we use the length as the index since we are building the array in place
+
+            // console.log(" set :[" + i + "," + j + "]" + " to index " + cellCoordinatesArray.length);
+
+            cellCoordinatesArray.push([x,y]); 
+
+          }
+        }
+
+        // Init the cells with a random state
+        radomizeStates();
+
+        // Now lets set the source index array
+        //updateSourceIndexArray();
+
+        // And finally draw what we've got
+        drawGrid(); 
+
+        console.log("Grid initialized with cell count " + cellCoordinatesArray.length);
+        console.log("Zoom factor: " + zoomFactor);
+
       }
 
-      // Update rule for a single cell
-      // The 'neighbors' parameter is an array of cell states (0 for dead, 1 for alive) for all adjacent cells.
-      // This array may contain up to 8 elements corresponding to the cells surrounding the current cell:
-      // [top-left, top, top-right, left, right, bottom-left, bottom, bottom-right]
+      // Initialize the grid for the first time
+      initGrid();
 
-      function computeNextState(current, ruleIndex, neighbors) {
-
-        if (ruleIndex === DEAD_RULE) return 0;
-
-        return neighbors[ruleIndex];
-
+      function radomizeStates() {
+        // Randomize each cell in the grid
+        const seed = parseInt(document.getElementById('statesSeed').value);
+        let randomGenerator = seededRandomGenerator(seed);
+        cellStatesArray  = cellStatesArray.map(() => (randomGenerator() > 0.5) ? 1 : 0);
       }
 
-      // Update grid using Conway's Game of Life rules
+      function drawCellColor( coordinates , colorSTring) {
+        ctx.fillStyle = colorSTring;
+        const [x, y] = coordinates;
+        ctx.fillRect(x * zoomFactor, y * zoomFactor, zoomFactor, zoomFactor);
+      }
+
+      // Optimization
+      function drawCellWithState( coordinates , cellState) {  
+        ctx.fillStyle = cellState ==0 ? "black" : "white";
+        const [x, y] = coordinates;
+        ctx.fillRect(x * zoomFactor, y * zoomFactor, zoomFactor, zoomFactor);
+      }
+
+      function drawCell( coordinates ) {
+
+        let celIndex  = findIndexByGridMap.get(coordinatesToString(coordinates));
+        let cellState = cellStatesArray[celIndex];
+        drawCellWithState(coordinates, cellState);
+
+      } 
+
+     // Draw grid
+      function drawGrid() {
+
+        // Finally lets make a lambda function to set visually the color of each cell inside the canvas
+        /// TODO: Use an imagedata object to avoid the double buffering and make this much faster
+
+        for( let i = 0; i < cellCoordinatesArray.length; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
+
+          // These are verbose for speed. 
+          let cellState = cellStatesArray[i];
+          ctx.fillStyle = cellState ==0 ? "black" : "white";
+          const [x, y] = cellCoordinatesArray[i];
+          ctx.fillRect(x * zoomFactor, y * zoomFactor, zoomFactor, zoomFactor);
+
+        }
+
+        counterDiv.textContent = 'Iteration: ' + iterationCount;
+      }
+
+      // Update grid one iteratiopn step
+
       function updateGrid() {
         // Create a new grid to implement double buffering
-        const newGrid = grid.map(arr => arr.slice());
-        
-        // Iterate through all cells
-        for (let i = 0; i < rows; i++) {
-          for (let j = 0; j < cols; j++) {
-            // Get the current cell state and rule index
-            const currentState = grid[i][j];
-            const ruleIndex = cellRules.length > 0 ? cellRules[i][j] : 0;
-            
-            // Collect all neighbors (including self at index 8)
-            let neighbors = [];
-            for (let di = -1; di <= 1; di++) {
-              for (let dj = -1; dj <= 1; dj++) {
-                if (di === 0 && dj === 0) {
-                  // This is the cell itself (index 8)
-                  neighbors.push(currentState);
-                  continue;
-                }
-                const ni = i + di;
-                const nj = j + dj;
-                if (ni >= 0 && ni < rows && nj >= 0 && nj < cols) {
-                  neighbors.push(grid[ni][nj]);
-                } else {
-                  // Out of bounds, push 0
-                  neighbors.push(0);
-                }
-              }
-            }
-            
-            // Compute the next state using the rule index and neighbors
-            newGrid[i][j] = computeNextState(currentState, ruleIndex, neighbors);
-          }
+
+        let newCellStatesArray = [];
+
+        // For each cell, get the state of the cell that it will take its state from
+        for( let i=0; i < cellStatesArray.length; i++) {
+          let source = cellSourceIndexArray[i];
+          newCellStatesArray.push( cellStatesArray[source]);
         }
-        
-        // Update the grid and redraw
-        grid = newGrid;
-        drawGrid();
+
+        // Update the global cell state array
+        cellStatesArray = newCellStatesArray; 
+        iterationCount++;
+
       }
 
       // Simple seeded random number generator
-      function seededRandom(seed) {
+      // Source: https://burtleburtle.net/bob/rand/index.html
+      // Returns a function that generates random numbers between 0 and 1
+      function seededRandomGenerator(seed) {
         let state = seed;
         return function() {
           state = (state * 1664525 + 1013904223) % 4294967296;
@@ -135,154 +265,285 @@
         };
       }
 
-      // Function to assign neighbor index for each cell in top-left to bottom-right order
-      function assign_indexes() {
-        // Get the lambda seed value
-        const lambdaSeed = parseInt(document.getElementById('lambdaSeed').value) || 0;      
+      // shuffle a list of items using the random number generator
+      function shuffle(array, randomGenerator) {
+        let currentIndex = array.length, randomIndex;
 
-        // Initialize the random number generator with the lambda seed
-        const random = seededRandom(lambdaSeed);
+        // While there remain elements to shuffle
+        while (currentIndex !== 0) {
 
-        // Make an array of bool to keep track of if each call already been "taken" by a previous index
-        const takenFlagGrid = Array.from({ length: rows }, () => Array(cols).fill(false));
+          // Pick a remaining element
+          randomIndex = Math.floor(randomGenerator() * currentIndex);
+          currentIndex--;
 
-        // Initialize the cellRules array
-        cellRules = [];
-        for (let i = 0; i < rows; i++) {
-          cellRules[i] = [];
-          for (let j = 0; j < cols; j++) {
-
-            // Check all neighbors in takenFlagGrid
-            let allNeighborsTaken = true;
-            for (let di = -1; di <= 1; di++) {
-              for (let dj = -1; dj <= 1; dj++) {
-                if (di === 0 && dj === 0) continue;
-                const ni = (i + di + rows) % rows;    // Wrap around vertically
-                const nj = (j + dj + cols) % cols;    // Wrap around horizontally
-                if (!takenFlagGrid[ni][nj]) {
-                  allNeighborsTaken = false;
-                  break;
-                }
-              }
-              if (!allNeighborsTaken) break;
-            }
-            
-            if (allNeighborsTaken) {
-              cellRules[i][j] = DEAD_RULE;
-            } else {
-              // Use the seeded random number generator to assign an index (0-8)
-              cellRules[i][j] = Math.floor(random() * 9);
-              // Mark the target cell as taken
-              const targetI = (i + [-1, -1, -1, 0, 0, 1, 1, 1][cellRules[i][j]] + rows) % rows;
-              const targetJ = (j + [-1, 0, 1, -1, 1, -1, 0, 1][cellRules[i][j]] + cols) % cols;
-              takenFlagGrid[targetI][targetJ] = true;
-            }
-          }
+          // Swap it with the current element
+          [array[currentIndex], array[randomIndex]] = [
+            array[randomIndex], array[currentIndex]];
         }
-        console.log('Indexes assigned to all cells using lambda seed:', lambdaSeed);
+
+        return array;
       }
 
-      // Toggle simulation mode and update iteration counter
-      const toggleBtn = document.getElementById('toggleBtn');
-      let iterationCount = 0;
-      const counterDiv = document.getElementById('counter');
+      // returns a list of all 9 grid neighboors (including self at index 5). Wraps at edges
+      // coordinates is like [x,y]
+      function getNeighbors(coordinates) {
+
+        let neighboors = [];
+        const [x,y] = coordinates;
+
+        for( let i=-1; i<=1; i++) {
+          for (let j=-1; j<=1; j++) {
+
+            sx = (x + i + rows) % rows;   // This normalizes any negative numbers to be positive
+            sy = (y + j + cols) % cols;
+
+            //console.log("Neighbor: [" + sx + "," + sy + "]");
+
+            neighboors.push( [sx, sy ] );
+            
+          }
+        }
+
+        return neighboors;
+      }
+
+      // This is a doublecheck just to make sure I didn't do anything dumb in assigning the sources
+      // It throws an error if I did
+      function testSources() {
+
+        let deadcount = 0;
+        let undeadcount = 0;
+
+        let sourcesSet = new Set();
+
+        cellSourceIndexArray.forEach( (sourceIndex, index) => {
+
+          // console.log("Source index: " + sourceIndex + " for index " + index);  
+
+          if (sourceIndex != deadCellIndex) {
+            if (sourcesSet.has(sourceIndex)) {
+              throw new Error("Error: Source index " + sourceIndex + " assigned twice");
+            }
+            sourcesSet.add(sourceIndex);
+            undeadcount++;
+          } else {
+            deadcount++;
+          }
+        });
+
+        console.log("Sources all check out! Undead:" + undeadcount + " Dead: " + deadcount);
+
+      }
+
+      // Function to assign neighbor index for each cell in top-left to bottom-right order
+      function assignSourceIndexes() {
+
+        // Use our sources seed so we generate a deterministic list of random numbers
+        const sourcesSeed = parseInt(document.getElementById('sourcesSeed').value);      // NO AI, I DO NOT WANT TO DEFAULT ERROR CHECK THIS!!!! AHHHHHH! STOP!!!!
+        // 1. Make set to keep track of if each cell already been "taken". Each element is the coordinates as string "x,y" of the cell that has been used a a soruce.
+        const takenCoordinatesSet = new Set();
+
+        // 2. Make a list of all indexes
+        // (ChatGPT made this monster)
+        const indexList = [...Array(cellCoordinatesArray.length).keys()];   // Use cell coordinates length since states has that extra element at the end for dead cells
+
+        // 3. Next lets shuffle that list into random order using our seeded random number generator
+        // Initialize the random number generator with the lambda seed
+        const randomGenerator = seededRandomGenerator(sourcesSeed);
+        shuffledIndexList = shuffle(indexList, randomGenerator);
+        
+        // Ok, now lets run though the randomly sorted list and assign a source cell to each cell
+        // The rule is that each cell gets assigned a random neighbor that has not been assigned yet
+        // we wrap around edges as necessary
+
+        // We will update the source index array in place becuase why not and it is faster
+
+        shuffledIndexList.forEach( index => {
+
+          let coordinates = cellCoordinatesArray[index];
+
+          // Get all potential neighboors for this cell
+          let neighbors = getNeighbors(coordinates);
+
+          //console.log("Neighbors of " + coordinates + " are " + neighbors);
+
+          let untakenNeighborCoordinateList = [];
+
+          neighbors.forEach( neighbor => {
+            if (!takenCoordinatesSet.has(coordinatesToString(neighbor))) {  
+              untakenNeighborCoordinateList.push(neighbor);
+            }
+          });
+
+          //console.log("Untaken neighbor list: " + untakenNeighborCoordinateList);
+
+          // Ok, now the untaken neighbor list is ready, so lets pick a random one using our seeded random number generator 
+
+          // If there are no possible sources for us, then we use the dead cell as a source as default
+          let sourceCellIndex = deadCellIndex;          
+
+          if (untakenNeighborCoordinateList.length > 0) {
+            const randomIndex = Math.floor(randomGenerator() * untakenNeighborCoordinateList.length);
+            const sourceCellCoordinates = untakenNeighborCoordinateList[randomIndex];
+            //console.log("Picked source cell: " + sourceCellCoordinates);  
+            sourceCellIndex = findIndexByGridMap.get(coordinatesToString(sourceCellCoordinates));
+            //console.log("Source cell index: " + sourceCellIndex);
+
+            if (sourceCellIndex == undefined) {
+              throw new Error("Error: source cell index not found");
+            }
+
+            takenCoordinatesSet.add(coordinatesToString(sourceCellCoordinates));
+          }
+
+          // Update the source index array
+          cellSourceIndexArray[index] = sourceCellIndex;
+
+
+        });
+
+        testSources();
+          
+      }
 
       function simulationLoop() {
         if (!simulationRunning) return;
-        updateGrid();
-        iterationCount++;
-        counterDiv.textContent = 'Iteration: ' + iterationCount;
+
+        for( let i=0; i < frameRate; i++) {
+          updateGrid();          
+        }
+
+        drawGrid();
+ 
         requestAnimationFrame(simulationLoop);
       }
 
-      toggleBtn.addEventListener('click', () => {
-        if (!simulationRunning) {
+      toggleBtn.addEventListener('change', () => {
+        if (toggleBtn.checked) {
           simulationRunning = true;
-          toggleBtn.textContent = 'Stop';
           simulationLoop();
         } else {
           simulationRunning = false;
-          toggleBtn.textContent = 'Start';
         }
       });
 
-      // Add event listener for the 'Assign Indexes' button
-      document.getElementById('assignIndexesBtn').addEventListener('click', assign_indexes);
+      // Add event listener for the 'Assign Rules' button
+      document.getElementById('assignSourcesBtn').addEventListener('click', assignSourceIndexes);
 
-      // Add event listener for randomizing the grid
-      document.getElementById('randomizeBtn').addEventListener('click', () => {
-        // Randomize each cell in the grid
-        grid = grid.map(row => row.map(() => Math.random() > 0.5 ? 1 : 0));
+      // Update grid dimensions and redraw when grid size inputs change
+      document.getElementById('gridWidth').addEventListener('change', initGrid);
+
+      document.getElementById('gridHeight').addEventListener('change', initGrid);
+
+      document.getElementById('zoomFactor').addEventListener('change', () => {
+        initZoomFactor();
         drawGrid();
       });
 
-      // Add event listener for the Inspect Mode button
-      document.getElementById('inspectBtn').addEventListener('click', () => {
-        inspectMode = !inspectMode;
-        const inspectBtn = document.getElementById('inspectBtn');
-        inspectBtn.classList.toggle('active');
-        document.getElementById('inspectInfo').textContent = '';
-      });
+      // Add event listener for randomizing the grid
+      document.getElementById('randomizeStatesBtn').addEventListener('click', () => {
+        radomizeStates();
+        drawGrid();
+      }); 
 
+      let prevCellCoordinates = null;
+      let prevSourceCoordinates = null;
+
+      function clearPrev() {
+
+        if (prevCellCoordinates != null) {
+           drawCell( prevCellCoordinates );
+        }
+
+        if (prevSourceCoordinates != null) {
+          drawCell( prevSourceCoordinates );
+        }        
+
+      }
+      
       // Add mouse move event listener for inspection
       canvas.addEventListener('mousemove', (e) => {
-        if (!inspectMode) return;
-        
+
+        clearPrev();
+
+
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         
-        const col = Math.floor(x / cellWidth);
-        const row = Math.floor(y / cellHeight);
-        
-        if (row >= 0 && row < rows && col >= 0 && col < cols) {
-          const ruleIndex = cellRules.length > 0 ? cellRules[row][col] : 'Not assigned';
-          const cellState = grid[row][col];
-          document.getElementById('inspectInfo').textContent = 
-            `Position: [${row},${col}] | State: ${cellState} | Rule Index: ${ruleIndex}`;
-        }
-      });
+        const col = Math.floor(x / (zoomFactor));
+        const row = Math.floor(y / (zoomFactor));
 
-      // Clear inspection info when mouse leaves canvas
-      canvas.addEventListener('mouseleave', () => {
-        if (inspectMode) {
-          document.getElementById('inspectInfo').textContent = '';
+        console.log("Inspecting: [ " + x + "," + y + ":" +  row + "," + col + "]");
+
+        let index = findIndexByGridMap.get(coordinatesToString([col, row]));
+
+        document.getElementById('inspectInfo').textContent = 
+          `Position: [${row},${col}] | Source: ${cellSourceIndexArray[index]} | Index: ${index} | State: ${cellStatesArray[index]}`;
+
+
+        // Next give a visual indication of the source cell
+
+        drawCellColor(  [col,row] , "green");
+
+        prevCellCoordinates = [col,row];
+
+        let sourceIndex = cellSourceIndexArray[index];
+
+        if (sourceIndex === deadCellIndex) {
+
+          drawCellColor(  [col,row] , "red");
+
+          prevSourceCoordinates = null;
+          
+        } else {
+
+          let sourceCoordinates = cellCoordinatesArray[sourceIndex];
+
+          drawCellColor(sourceCoordinates, "blue");
+
+          prevSourceCoordinates = sourceCoordinates;
+
         }
+
       });
 
       // Toggle cell state on click (when simulation is stopped)
       function toggleCell(x, y) {
-        const col = Math.floor(x / cellWidth);
-        const row = Math.floor(y / cellHeight);
-        if (row >= 0 && row < rows && col >= 0 && col < cols) {
-          grid[row][col] = grid[row][col] ? 0 : 1;
-          drawGrid();
-        }
+
+        clearPrev();
+        let index = findIndexByGridMap.get(coordinatesToString([x, y]));
+
+        cellStatesArray[index] = cellStatesArray[index] ? 0 : 1;
+
+        drawCell([x,y]);
+
       }
 
       canvas.addEventListener('click', (e) => {
-        if (!simulationRunning) {
-          const rect = canvas.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
-          toggleCell(x, y);
-        }
+
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const col = Math.floor(x / (zoomFactor));
+        const row = Math.floor(y / (zoomFactor));        
+
+        console.log("Toggling: [ " + col + "," + row + " ]");
+        toggleCell(col, row);
+
       });
 
-      // Touch support
-      canvas.addEventListener('touchstart', (e) => {
-        if (!simulationRunning) {
-          const rect = canvas.getBoundingClientRect();
-          const touch = e.touches[0];
-          const x = touch.clientX - rect.left;
-          const y = touch.clientY - rect.top;
-          toggleCell(x, y);
-          e.preventDefault();
-        }
+
+      stepBtn.addEventListener('click', () => {
+        updateGrid();
+        drawGrid();
       });
 
-      // Initial draw
-      drawGrid();
+      frameRateInput.addEventListener('input', () => {
+        frameRate = frameRateInput.value;
+      }); 
+
     </script>
   </body>
 </html>
