@@ -66,7 +66,7 @@
 
       <hr>
       <label for="zoomFactor">Zoom Factor:</label>
-      <input type="number" id="zoomFactor" value="10" min="1">
+      <input type="number" id="zoomFactor" value="1" min="1">
       <hr>
   
       <div id="inspectInfo"></div>
@@ -106,7 +106,11 @@
       
       // The state of each cell as integer 0 or 1 since this is faster than a boolean
       // As an ugly optimization, we will store an extra 0 past the end of the list and use this as the source for dead cells
-      let cellStatesArray = [];
+
+      // We double buffer so we can do write in place and avoid creating a new arrays every time 
+      // These will get properly sized typed arrays when we init the grid
+      let activeCellStateArray = [];
+      let inactiveCellStateArray = []; 
 
       // Keep track of how many valid elements there are in all of these arrays
       let cellCount = 0;
@@ -153,23 +157,20 @@
 
         initZoomFactor();
 
-        cellStatesArray = [];
-        for(let y = 0; y < rows; y++) {
-          for(let x = 0; x < cols ; x++) {
-            cellStatesArray.push(0);        /// Start with all cells off
-          }
-        }
+        cellCount = rows * cols;
 
-        cellCount = cellStatesArray.length;
+        // Allocate new cell state arrays. Dewfaults to 0
+        // +1 becuase we use the last element as a magic value for a dead cell
+        activeCellStatesArray  = new Uint8Array( cellCount + 1 );
+        inactiveCellStateArray = new Uint8Array( cellCount + 1  );
 
         // Remeber the index of the dead cell
         deadCellIndex = cellCount;
-        cellStatesArray.push(0);          // Add the dead cell (will always be 0)
 
         // Next default all cells to dead until they are assigned a source
-        cellSourceIndexArray = [];
+        cellSourceIndexArray = new Uint32Array( cellCount );
         for (let i = 0; i < cellCount; i++) {
-          cellSourceIndexArray.push(deadCellIndex);
+          cellSourceIndexArray[i] = deadCellIndex;
         }
 
         // Next lets set the grid coordinates of each cell, and add an entry to be able to get the index from the x,y
@@ -183,9 +184,6 @@
 
         // Init the cells with a random state
         radomizeStates();
-
-        // Now lets set the source index array
-        //updateSourceIndexArray();
 
         // And finally draw what we've got
         drawGrid(0); 
@@ -202,7 +200,9 @@
         // Randomize each cell in the grid
         const seed = parseInt(document.getElementById('statesSeed').value);
         let randomGenerator = seededRandomGenerator(seed);
-        cellStatesArray  = cellStatesArray.map(() => (randomGenerator() > 0.5) ? 1 : 0);
+        for( let i=0; i < cellCount; i++) {
+          activeCellStatesArray[i] = (randomGenerator() > 0.5) ? 1 : 0;
+        }
       }
 
       function drawCellColor( coordinates , colorSTring) {
@@ -236,7 +236,7 @@
         for( let i = 0 ; i < cellCount; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
 
           //imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF000000 : 0xFFFFFFFF;
-          imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF0FF000 : 0xFFFFFFFF;
+          imageBuffer[i] = activeCellStatesArray[i]==1 ? 0xFF0FF000 : 0xFFFFFFFF;
 
         }
 
@@ -269,27 +269,19 @@
       // Update grid one iteratiopn step
 
       function updateGrid() {
-        // Create a new grid to implement double buffering
-
-        let newCellStatesArray = [];
-
+        // We use a double buffering approach so we can quickly write in place, and then just swap the buffers when we are done
+        
         // For each cell, get the state of the cell that it will take its state from
         for( let i=0; i < cellCount; i++) {
-          let source = cellSourceIndexArray[i];
-          let state = cellStatesArray[source];
-          if (state === undefined  ) {
-            console.log( "Undefined state at index " + i + " source index " + source);
-            state = 0;
-          }
-          
-          newCellStatesArray.push( state);
+          // THis is basically the whole program in this next line. Simple, right?          
+          inactiveCellStateArray[i] = activeCellStatesArray[cellSourceIndexArray[i]];
         }
 
-        // Finally add the ugly dead cell at the end. 
-        newCellStatesArray.push( 0 );        
-
-        // Update the global cell state array
-        cellStatesArray = newCellStatesArray; 
+        // Swap active buffer for inactive buffer. 
+        const temp = activeCellStatesArray;
+        activeCellStatesArray = inactiveCellStateArray;
+        inactiveCellStateArray = temp;
+        
         iterationCount++;
 
       }
@@ -549,7 +541,7 @@
         let index = coordinatesToIndex([col, row]);
 
         document.getElementById('inspectInfo').textContent = 
-          `Position: [${row},${col}] | Index: ${index} | State: ${cellStatesArray[index]} | Source: ${cellSourceIndexArray[index]} `;
+          `Position: [${row},${col}] | Index: ${index} | State: ${activeCellStatesArray[index]} | Source: ${cellSourceIndexArray[index]} `;
 
       });
 
@@ -566,9 +558,9 @@
 
         let index = coordinatesToIndex([col , row]); 
 
-        cellStatesArray[index] = cellStatesArray[index] ? 0 : 1;
+        activeCellStatesArray[index] = activeCellStatesArray[index] ? 0 : 1;
 
-        drawGrid(0);
+        drawGrid(0);  
 
       });
 
