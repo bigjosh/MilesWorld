@@ -121,19 +121,19 @@
       // For each cell, this is the cell in cellStatesArray that it will pull its value from on the next update. 
       let cellSourceIndexArray = []; 
 
-      // For each cell, this the [x,y] value where that cell apears in the grid. Each element is stored as a [x,y] tuple.
-      let cellCoordinatesArray = [];
 
       function coordinatesToIndex(coordinates) {
         [x,y] = coordinates;
         return y * cols + x;
       }
 
-      // We use this becuase javascript can not store a tupple as a key in a set or map :/
-      function coordinatesToString(coordinates) {
-        return `${coordinates[0]},${coordinates[1]}`;
+      function indexToCoordinates(index) {
+        // Try to only do one division becuase I am old enough to remember when division was expensive. 
+        const y = Math.floor(index / cols);
+        const x = index - (y * cols);
+        return [x, y];
       }
-
+      
       function initZoomFactor() {
 
         zoomFactor = parseInt(document.getElementById('zoomFactor').value);
@@ -171,15 +171,6 @@
         cellSourceIndexArray = new Uint32Array( cellCount );
         for (let i = 0; i < cellCount; i++) {
           cellSourceIndexArray[i] = deadCellIndex;
-        }
-
-        // Next lets set the grid coordinates of each cell, and add an entry to be able to get the index from the x,y
-        cellCoordinatesArray = [];
-
-        for(let y = 0; y < rows; y++) {
-          for(let x = 0; x < cols; x++) {
-            cellCoordinatesArray.push([x,y]); 
-          }
         }
 
         // Init the cells with a random state
@@ -376,9 +367,6 @@
 
         cellSourceIndexArray.forEach( (sourceIndex, index) => {
 
-          //console.log("Source index: " + sourceIndex + " for index " + index );
-          //console.log( " at " + coordinatesToString(cellCoordinatesArray[index]) );
-
           if (sourceIndex != deadCellIndex) {
             if (sourcesSet.get(sourceIndex)) {
               throw new Error("Error: Source index " + sourceIndex + " assigned twice");
@@ -402,15 +390,13 @@
         // 1. Make set to keep track of if each cell already been "taken". Each element is the coordinates as string "x,y" of the cell that has been used a a soruce.
         const takenCoordinatesSet = new BitSet(cellCount);
 
-        // 2. Make a list of all indexes
-        // (ChatGPT made this monster)
-        const indexList = [...Array(cellCoordinatesArray.length).keys()];   // Use cell coordinates length since states has that extra element at the end for dead cells
-
         // 3. Next lets shuffle that list into random order using our seeded random number generator
         // Initialize the random number generator with the lambda seed
         const randomGenerator = seededRandomGenerator(sourcesSeed);
+
+        const indexList = [...Array(cellCount).keys()];
         shuffledIndexList = shuffle(indexList, randomGenerator);
-        
+
         // Ok, now lets run though the randomly sorted list and assign a source cell to each cell
         // The rule is that each cell gets assigned a random neighbor that has not been assigned yet
         // we wrap around edges as necessary
@@ -419,7 +405,7 @@
 
         shuffledIndexList.forEach( index => {
 
-          let coordinates = cellCoordinatesArray[index];
+          let coordinates = indexToCoordinates(index);
 
           // Get all potential neighboors for this cell
           let neighbors = getNeighbors(coordinates);
