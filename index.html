@@ -55,7 +55,7 @@
       <hr>
       <input type="checkbox" id="toggleBtn">
       <label for="toggleBtn">Running</label>
-      <label for="FrameRate" style="margin-left: 10px;">FrameRate:</label> 
+      <label for="FrameRate">FrameRate:</label> 
       <input type="number" id="frameRate" value="1" min="1"><br>
 
 
@@ -82,6 +82,8 @@
       const stepBtn = document.getElementById('stepBtn');
       const canvas = document.getElementById('gameCanvas');
       const ctx = canvas.getContext('2d');
+      let imageData;
+      let imageBuffer;
 
       // Toggle simulation mode and update iteration counter
       const toggleBtn = document.getElementById('toggleBtn');
@@ -137,6 +139,9 @@
 
         rows = parseInt(document.getElementById('gridHeight').value);
         cols = parseInt(document.getElementById('gridWidth').value);
+
+        imageData = ctx.createImageData(cols, rows);
+        imageBuffer = new Uint32Array(imageData.data.buffer);
 
         console.log("Initializing grid with " + rows + " rows and " + cols + " cols");
 
@@ -225,18 +230,30 @@
       function drawGrid( fps_compute ) {
 
         // Finally lets make a lambda function to set visually the color of each cell inside the canvas
-        /// TODO: Use an imagedata object to avoid the double buffering and make this much faster
 
         const startTime = performance.now();
 
-        for( let i = 0; i < cellCoordinatesArray.length; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
+        for( let i = 0 ; i < cellStatesArray.length - 1; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
 
-          // These are verbose for speed. 
-          let cellState = cellStatesArray[i];
-          ctx.fillStyle = cellState ==0 ? "black" : "white";
-          const [x, y] = cellCoordinatesArray[i];
-          ctx.fillRect(x * zoomFactor, y * zoomFactor, zoomFactor, zoomFactor);
+          //imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF000000 : 0xFFFFFFFF;
+          imageBuffer[i] = cellStatesArray[i]==1 ? 0xFF0FF000 : 0xFFFFFFFF;
 
+        }
+
+        if (zoomFactor == 1) {
+          ctx.putImageData(imageData, 0, 0);
+        } else {
+          const offscreenCanvas = new OffscreenCanvas(cols, rows);
+          const offscreenCtx = offscreenCanvas.getContext("2d");
+          offscreenCtx.putImageData(imageData, 0, 0);
+          
+          // Draw scaled version onto the main canvas
+          // Source rectangle: entire offscreen canvas (cols × rows)
+          // Destination rectangle: entire main canvas (cols*zoomFactor × rows*zoomFactor)
+          ctx.drawImage(offscreenCanvas, 
+                       0, 0, cols, rows,           // Source x,y,width,height
+                       0, 0, canvas.width, canvas.height  // Dest x,y,width,height
+          );
         }
 
         const endTime = performance.now();
