@@ -34,6 +34,7 @@
         <input type="number" id="gridWidth" value="50" min="1">
         <label for="gridHeight">Grid Height:</label>
         <input type="number" id="gridHeight" value="50" min="1">
+        <button id="resizeBtn">Resize Grid</button>        
         </div>
       <hr>
 
@@ -68,7 +69,7 @@
       <hr>
   
       <div id="inspectInfo"></div>
-      <div><tt>Hover over cell to inspect info and see its target in blue. Click to change state.</tt></div>  
+      <div><tt>Hover over cell to inspect info and see its source in blue. Click to change state.</tt></div>  
 
     </div>
 
@@ -85,7 +86,7 @@
       // Toggle simulation mode and update iteration counter
       const toggleBtn = document.getElementById('toggleBtn');
       let iterationCount = 0;
-      const counterDiv = document.getElementById('counter');      
+      const statsDiv = document.getElementById('counter');      
 
       let frameRate = 1;
 
@@ -93,7 +94,6 @@
       let zoomFactor; 
       let rows; 
       let cols; 
-
 
       // Global flag if we are running now.
       let simulationRunning = false;
@@ -183,7 +183,7 @@
         //updateSourceIndexArray();
 
         // And finally draw what we've got
-        drawGrid(); 
+        drawGrid(0); 
 
         console.log("Grid initialized with cell count " + cellCoordinatesArray.length);
         console.log("Zoom factor: " + zoomFactor);
@@ -222,10 +222,12 @@
       } 
 
      // Draw grid
-      function drawGrid() {
+      function drawGrid( fps_compute ) {
 
         // Finally lets make a lambda function to set visually the color of each cell inside the canvas
         /// TODO: Use an imagedata object to avoid the double buffering and make this much faster
+
+        const startTime = performance.now();
 
         for( let i = 0; i < cellCoordinatesArray.length; i++) {    // Use the cell coordinates array becuase it does not have the extra dead element at the end
 
@@ -237,7 +239,14 @@
 
         }
 
-        counterDiv.textContent = 'Iteration: ' + iterationCount;
+        const endTime = performance.now();
+        const elapsedMs = endTime - startTime;
+        
+        // Convert to FPS (1000ms = 1second)
+        fps_animate = (1000 )/ elapsedMs;
+      
+        statsDiv.textContent = 'Iteration: ' + iterationCount + " | Compute FPS: " + fps_compute.toFixed(2) + " | Animate FPS: " +  fps_animate.toFixed(2) ;
+
       }
 
       // Update grid one iteratiopn step
@@ -411,22 +420,36 @@
           
       }
 
-      function simulationLoop() {
-        if (!simulationRunning) return;
+      function animate( frames) {
+        const startTime = performance.now();
 
         for( let i=0; i < frameRate; i++) {
           updateGrid();          
         }
 
-        drawGrid();
- 
+        const endTime = performance.now();
+        const elapsedMs = endTime - startTime;
+        
+        // Convert to FPS (1000ms = 1second)
+        fps_compute = (1000 * frameRate )/ elapsedMs;
+
+        drawGrid(fps_compute);
+      }        
+
+      function simulationLoop() {
+
+        if (!simulationRunning) return;
+
+        animate( frameRate);
+
         requestAnimationFrame(simulationLoop);
+
       }
 
       toggleBtn.addEventListener('change', () => {
         if (toggleBtn.checked) {
           simulationRunning = true;
-          simulationLoop();
+          requestAnimationFrame(simulationLoop);
         } else {
           simulationRunning = false;
         }
@@ -436,19 +459,17 @@
       document.getElementById('assignSourcesBtn').addEventListener('click', assignSourceIndexes);
 
       // Update grid dimensions and redraw when grid size inputs change
-      document.getElementById('gridWidth').addEventListener('change', initGrid);
-
-      document.getElementById('gridHeight').addEventListener('change', initGrid);
+      document.getElementById('resizeBtn').addEventListener('click', initGrid);
 
       document.getElementById('zoomFactor').addEventListener('change', () => {
         initZoomFactor();
-        drawGrid();
+        drawGrid(0);
       });
 
       // Add event listener for randomizing the grid
       document.getElementById('randomizeStatesBtn').addEventListener('click', () => {
         radomizeStates();
-        drawGrid();
+        drawGrid(0);
       }); 
 
       let prevCellCoordinates = null;
@@ -541,8 +562,7 @@
 
 
       stepBtn.addEventListener('click', () => {
-        updateGrid();
-        drawGrid();
+        animate( 1 );
       });
 
       frameRateInput.addEventListener('input', () => {
