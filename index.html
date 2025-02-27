@@ -34,11 +34,7 @@
         <input type="number" id="gridWidth" value="50" min="1">
         <label for="gridHeight">Grid Height:</label>
         <input type="number" id="gridHeight" value="50" min="1">
-        <br>
-        <label for="zoomFactor">Zoom Factor:</label>
-        <input type="number" id="zoomFactor" value="10" min="1">
-        <hr>
-      </div>
+        </div>
       <hr>
 
       <table>
@@ -65,10 +61,19 @@
       <button id="stepBtn">Step</button>
 
       <div id="counter">Iteration: 0</div>
+
+      <hr>
+      <label for="zoomFactor">Zoom Factor:</label>
+      <input type="number" id="zoomFactor" value="10" min="1">
+      <hr>
+  
       <div id="inspectInfo"></div>
       <div><tt>Hover over cell to inspect info and see its target in blue. Click to change state.</tt></div>  
 
     </div>
+
+
+
     <canvas id="gameCanvas" width="500" height="500"></canvas>
 
     <script>
